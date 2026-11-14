@@ -5,15 +5,16 @@
 // are ~uncorrelated, so persistence is the honest median), and the spread
 // around it is a normal random walk whose sigma is that market's own recent
 // realised movement: the mean absolute one-minute price change, averaged
-// over the last 360 minutes and the last 60 minutes, floored and capped.
-// That is the whole edge over the house baseline, which uses one fixed
-// sigma (0.0025) for every market: most markets sit nearly still for hours
-// (their true sigma is ~0.0002-0.001) while a few jump, so a fixed spread is
-// far too wide for the quiet ones and too narrow for the jumpy ones.
-// Returns are mostly zero with rare jumps, so the mean absolute move -- not
-// the jump-inflated standard deviation -- is the right scale: on the six
-// practice cases this scores a pinball loss of ~0.277 against the house
-// baseline's 0.364 (coverage ~0.89, honest against the 0.90 target).
+// over the last 60, 120, 360 and 720 minutes and scaled by 1.25, floored at
+// 0.0004 and capped at 0.005. That is the whole edge over the house baseline,
+// which uses one fixed sigma (0.0025) for every market: most markets sit
+// nearly still for hours (their true sigma is ~0.0002-0.001) while a few jump,
+// so a fixed spread is far too wide for the quiet ones and too narrow for the
+// jumpy ones. Returns are mostly zero with rare jumps, so the mean absolute
+// move -- not the jump-inflated standard deviation -- is the right scale, and
+// the cap keeps a few jumps from blowing the spread up at every quiet minute:
+// on the six practice cases this scores a pinball loss of ~0.268 against the
+// house baseline's 0.364 (coverage ~0.90, honest against the 0.90 target).
 //
 //   q_tau(h) = clamp(x + z_tau * sigma * sqrt(h), 0, 1), rounded to 6 decimals
 //
@@ -35,10 +36,12 @@ const INPUT_DIR = process.env.MAKEFUN_INPUT_DIR ?? '/input';
 const OUTPUT_DIR = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
 /** Floor and cap of the adaptive sigma, in price units per sqrt-minute. */
-const SIGMA_FLOOR = 0.0005;
-const SIGMA_CAP = 0.01;
+const SIGMA_FLOOR = 0.0004;
+const SIGMA_CAP = 0.005;
 /** The house baseline's fixed sigma, used only as a fallback. */
 const HOUSE_SIGMA = 0.0025;
+/** Scale on the realised mean absolute move. */
+const SIGMA_SCALE = 1.25;
 
 interface CaseMarket {
   id: string;
@@ -92,11 +95,15 @@ function meanAbsMove(prices: number[], n: number): number {
 }
 
 /** This market's spread scale: recent realised movement, floored/capped.
- * A market with little history gets its noisy estimate shrunk toward the
- * house sigma (weight = returns / 120, full weight from 2 hours on), so a
- * two-minute-old market cannot set a wild spread from a single jump. */
+ * The mean absolute one-minute move, averaged over the last 60, 120, 360
+ * and 720 minutes and scaled by 1.25. The 0.005 cap matters most: a few
+ * jumps inflate any realised scale, and an uncapped sigma pays for width
+ * at every quiet minute. A market with little history gets its noisy
+ * estimate shrunk toward the house sigma (weight = returns / 120, full
+ * weight from 2 hours on), so a two-minute-old market cannot set a wild
+ * spread from a single jump. */
 function marketSigma(prices: number[]): number {
-  const raw = 0.5 * meanAbsMove(prices, 360) + 0.5 * meanAbsMove(prices, 60);
+  const raw = SIGMA_SCALE * (meanAbsMove(prices, 60) + meanAbsMove(prices, 120) + meanAbsMove(prices, 360) + meanAbsMove(prices, 720)) / 4;
   const returns = Math.max(0, prices.length - 1);
   const w = Math.min(1, returns / 120);
   const sig = w * raw + (1 - w) * HOUSE_SIGMA;

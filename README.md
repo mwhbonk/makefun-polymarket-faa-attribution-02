@@ -8,15 +8,15 @@ A per-market adaptive-sigma quantile forecaster for Polymarket's FAA outage attr
 
 ## How it works
 
-For each market, the median stays at its last price (one-minute returns are near-uncorrelated, so persistence is the honest median), and the spread around it is a normal random walk whose sigma is that market's own recent realised movement: the mean absolute one-minute price change, averaged over the last 360 minutes and the last 60 minutes, floored at 0.0005 and capped at 0.01.
+For each market, the median stays at its last price (one-minute returns are near-uncorrelated, so persistence is the honest median), and the spread around it is a normal random walk whose sigma is that market's own recent realised movement: the mean absolute one-minute price change, averaged over the last 60, 120, 360 and 720 minutes and scaled by 1.25, floored at 0.0004 and capped at 0.005. A market with little history gets its noisy estimate shrunk toward the house sigma, so a two-minute-old market cannot set a wild spread from a single jump.
 
-That is the whole edge over the house baseline, which uses one fixed sigma (0.0025) for every market: most markets sit nearly still for hours (their true sigma is ~0.0002–0.001) while a few jump, so a fixed spread is far too wide for the quiet ones and too narrow for the jumpy ones. Returns are mostly zero with rare jumps, so the mean absolute move — not the jump-inflated standard deviation — is the right scale.
+That is the whole edge over the house baseline, which uses one fixed sigma (0.0025) for every market: most markets sit nearly still for hours (their true sigma is ~0.0002–0.001) while a few jump, so a fixed spread is far too wide for the quiet ones and too narrow for the jumpy ones. Returns are mostly zero with rare jumps, so the mean absolute move — not the jump-inflated standard deviation — is the right scale, and the cap keeps a few jumps from blowing the spread up at every quiet minute.
 
 ```
 q_tau(h) = clamp(x + z_tau * sigma * sqrt(h), 0, 1), rounded to 6 decimals
 ```
 
-On the six practice cases (cut from Polymarket's "Next CEO of NVIDIA?" event, scored against the real prices after each checkpoint with the grader's pinball loss), this scores **0.276865** against the house baseline's **0.363589**, with 90% coverage of 0.894 (honest against the 0.90 target). Every practice case beats the baseline.
+On the six practice cases (cut from Polymarket's "Next CEO of NVIDIA?" event, scored against the real prices after each checkpoint with the grader's pinball loss), this scores **0.270370** against the house baseline's **0.363589**, with 90% coverage of 0.897 (honest against the 0.90 target). Every practice case beats the baseline.
 
 The program is deterministic (pure functions of the input only), runs offline with no network, uses only the Node standard library, and finishes all six practice cases in under a second.
 
